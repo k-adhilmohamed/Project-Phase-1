@@ -1,0 +1,111 @@
+import dronekit
+from dronekit import connect, VehicleMode, LocationGlobalRelative
+import cv2
+import time
+import numpy as np
+
+# Connect to the drone
+def initialize_drone(connection_string):
+    print("Connecting to the drone...")
+    vehicle = connect(connection_string, wait_ready=True)
+    print("Drone connected successfully!")
+    return vehicle
+
+# Arm and takeoff
+def takeoff(vehicle, altitude):
+    print("Arming the drone...")
+    while not vehicle.is_armable:
+        print("Waiting for drone to become armable...")
+        time.sleep(1)
+    vehicle.mode = VehicleMode("GUIDED")
+    vehicle.armed = True
+
+    while not vehicle.armed:
+        print("Waiting for arming...")
+        time.sleep(1)
+
+    print("Taking off!")
+    vehicle.simple_takeoff(altitude)
+
+    while True:
+        print(f"Altitude: {vehicle.location.global_relative_frame.alt}")
+        if vehicle.location.global_relative_frame.alt >= altitude - 1:
+            print("Reached target altitude!")
+            break
+        time.sleep(1)
+
+# Object detection
+def detect_objects(frame, model):
+    detections = model.detect(frame)
+    for detection in detections:
+        print(f"Detected: {detection}")
+    return detections
+
+# Intruder detection
+def intruder_detection(frame):
+    gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+    # Example: Simple threshold to simulate intruder detection
+    _, thresh = cv2.threshold(gray, 127, 255, cv2.THRESH_BINARY)
+    return thresh
+
+# Battery monitoring
+def monitor_battery(vehicle):
+    battery = vehicle.battery
+    print(f"Battery Level: {battery.level}%")
+    return battery.level
+
+# Return to home
+def return_to_home(vehicle):
+    print("Returning to launch location...")
+    vehicle.mode = VehicleMode("RTL")
+
+# Automatic landing
+def land_drone(vehicle):
+    print("Landing the drone...")
+    vehicle.mode = VehicleMode("LAND")
+
+# Main execution
+if __name__ == "__main__":
+    try:
+        # Initialization
+        connection_string = "127.0.0.1:14550"  # Replace with your drone's connection string
+        vehicle = initialize_drone(connection_string)
+        
+        # Takeoff
+        target_altitude = 10  # Altitude in meters
+        takeoff(vehicle, target_altitude)
+
+        # Object Detection Loop
+        cap = cv2.VideoCapture(0)  # Access camera
+        model = cv2.dnn.readNetFromONNX('model.onnx')  # Example pre-trained model
+        
+        while True:
+            ret, frame = cap.read()
+            if not ret:
+                print("Failed to capture frame. Exiting...")
+                break
+            
+            # Perform object detection
+            detections = detect_objects(frame, model)
+            
+            # Simulate battery monitoring
+            battery_level = monitor_battery(vehicle)
+            if battery_level < 20:
+                print("Low battery! Returning to Home.")
+                return_to_home(vehicle)
+                break
+
+            # Show frame
+            cv2.imshow("Frame", frame)
+            if cv2.waitKey(1) & 0xFF == ord('q'):
+                print("Exiting...")
+                break
+
+        # Landing
+        land_drone(vehicle)
+    except Exception as e:
+        print(f"An error occurred: {e}")
+    finally:
+        print("Closing connection...")
+        vehicle.close()
+        cv2.destroyAllWindows()
