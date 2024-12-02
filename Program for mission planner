@@ -1,0 +1,83 @@
+import dronekit
+from dronekit import connect, VehicleMode, LocationGlobalRelative
+import dronekit_sitl  # Import SITL
+import time
+import subprocess
+import wx
+import matplotlib
+
+# Initialize SITL
+def start_sitl_with_visualization():
+    print("Starting SITL with visualization...")
+    sitl = dronekit_sitl.start_default()
+    connection_string = sitl.connection_string()
+
+    # Forward SITL data to Mission Planner or QGroundControl
+    print("Forwarding MAVLink telemetry...")
+    mavproxy_command = (
+        f"mavproxy.py --master={connection_string} "
+        f"--out=udp:127.0.0.1:14550"  # Mission Planner/QGroundControl
+    )
+    subprocess.Popen(mavproxy_command, shell=True)
+
+    print(f"SITL started. Connection string: {connection_string}")
+    return sitl, connection_string
+# Connect to the vehicle
+def initialize_drone(connection_string):
+    print(f"Connecting to the drone at {connection_string}...")
+    vehicle = connect(connection_string, wait_ready=True)
+    print("Drone connected successfully!")
+    return vehicle
+
+# Arm and takeoff
+def takeoff(vehicle, altitude):
+    print("Arming the drone...")
+    while not vehicle.is_armable:
+        print("Waiting for drone to become armable...")
+        time.sleep(1)
+    vehicle.mode = VehicleMode("GUIDED")
+    vehicle.armed = True
+
+    while not vehicle.armed:
+        print("Waiting for arming...")
+        time.sleep(1)
+
+    print("Taking off!")
+    vehicle.simple_takeoff(altitude)
+
+    while True:
+        print(f"Altitude: {vehicle.location.global_relative_frame.alt}")
+        if vehicle.location.global_relative_frame.alt >= altitude - 1:
+            print("Reached target altitude!")
+            break
+        time.sleep(1)
+
+# Main execution
+if __name__ == "__main__":
+    try:
+        # Start SITL with visualization
+        sitl, connection_string = start_sitl_with_visualization()
+
+        # Connect to SITL
+        vehicle = initialize_drone(connection_string)
+
+        # Takeoff to a target altitude
+        target_altitude = 10  # Meters
+        takeoff(vehicle, target_altitude)
+
+        # Hold position for 10 seconds
+        print("Holding position...")
+        time.sleep(10)
+
+        # Land the drone
+        print("Landing...")
+        vehicle.mode = VehicleMode("LAND")
+
+    except Exception as e:
+        print(f"An error occurred: {e}")
+    finally:
+        print("Closing connection...")
+        vehicle.close()
+        if 'sitl' in locals():
+            sitl.stop()  # Stop SITL
+        print("Simulation complete.")
